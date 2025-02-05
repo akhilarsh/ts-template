@@ -1,0 +1,83 @@
+name: Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      cycleStart:
+        description: 'cycle start date : format 2024-12-16'
+        required: false
+        default: ''
+        type: string
+      cycleEnd:
+        description: 'cycle end date : format 2024-12-29'
+        required: false
+        default: ''
+        type: string
+      postToSlack:
+        description: 'Post results to Slack (Y/N)'
+        required: false
+        default: 'Y'
+        type: string
+  schedule:
+    - cron: '30 4 * * 2' # Runs every Tuesday at 10 AM IST
+
+jobs:
+  check-date:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.date-check.outputs.should_run }}
+    steps:
+      - name: Check if Alternate Tuesday
+        id: date-check
+        run: |
+          REFERENCE_DATE="2025-01-14"
+          TODAY=$(date +%Y-%m-%d)
+          DIFF=$(( ($(date -d "$TODAY" +%s) - $(date -d "$REFERENCE_DATE" +%s)) / 86400 ))
+          if [ $((DIFF % 14)) -eq 0 ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            echo "Today is an alternate Tuesday. Proceeding with workflow."
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "Not an alternate Tuesday. Workflow will be skipped."
+          fi
+
+  run-main-ts:
+    needs: check-date
+    if: needs.check-date.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: latest
+
+      - name: Install dependencies
+        run: |
+          npm install
+          npm install -g ts-node typescript
+
+      - name: Create Environment File
+        run: sh scripts/create-env.sh
+        env:
+          CYCLE_START: ${{ github.event.inputs.cycleStart }}
+          CYCLE_END: ${{ github.event.inputs.cycleEnd }}
+          POST_TO_SLACK: ${{ github.event.inputs.postToSlack }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TRR_QA_BOT: ${{ secrets.SLACK_WEBHOOK_TRR_QA_BOT }}
+
+      - name: Run main.ts
+        id: test
+        run: npm run start
+
+      - name: Save Logs
+        if: always() && steps.test.outcome == 'success' || steps.test.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        id: logs-upload-step
+        with:
+          name: logs-${{ github.run_id }}
+          path: logs/
