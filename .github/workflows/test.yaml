@@ -18,9 +18,7 @@ on:
         required: false
         default: 'Y'
         type: string
-  schedule:
-    - cron: '30 4 * * 2' # Runs every Tuesday at 10 AM IST
-
+    
 jobs:
   check-date:
     runs-on: ubuntu-latest
